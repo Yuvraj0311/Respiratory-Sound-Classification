@@ -1,145 +1,157 @@
-# Respiratory Disease Classification
 
-A deep learning model for **automated respiratory disease classification** using audio recordings, with **selective augmentation** to address class imbalance.
+# A.I.R.A. - AI Respiratory Assistant
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
+[![React](https://img.shields.io/badge/react-18.0+-61DAFB.svg)](https://reactjs.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-0.104+-009688.svg)](https://fastapi.tiangolo.com/)
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/drive/1Dpt0gq7pRSeaXmTOR_p4DEStpRIO5eye?usp=sharing)
+A.I.R.A. is an end-to-end application that serves as a personal AI health companion for respiratory analysis. It combines a user-friendly interface with a powerful deep learning backend to classify respiratory diseases from audio recordings and provide AI-driven health insights.
 
----
+## ✨ Key Features
 
-## 📌 Overview
+- **Interactive AI Chat:** Engage in a conversation with an AI health assistant for information and guidance.
+- **Respiratory Audio Analysis:** Upload an audio file (`.wav`, `.mp3`, `.flac`) and receive a potential respiratory disease classification powered by a 2D CNN model.
+- **Personalized Health Profiles:** Register, log in, and manage a detailed health profile, including comorbidities, medications, and allergies.
+- **Dynamic Profile Editing:** Easily update your health information and profile picture.
+- **Secure Authentication:** User accounts are protected with a username-based login system.
+- **Full-Stack Architecture:** Built with a modern tech stack including a React frontend and a FastAPI backend.
 
-This project implements a **2D CNN** that classifies respiratory diseases from lung sound recordings.
-The key innovation is **selective augmentation** – applying augmentation **only to minority classes** – which significantly improves balanced classification.
+## 🏛️ Architecture
 
----
+A.I.R.A. is composed of three main components that work together to deliver a seamless experience:
 
-## 📂 Dataset
+- **Frontend (React):** A responsive user interface built with Vite that allows patients to register, log in, manage their profiles, and interact with the AI chatbot and audio analysis tools.
+- **Backend (FastAPI):** A robust Python server that handles user authentication, manages patient data in a PostgreSQL database, processes audio files, runs the classification model, and communicates with the OpenAI API for chat responses.
+- **Deep Learning Model (TensorFlow/Keras):** A 2D Convolutional Neural Network trained on Mel-spectrograms of lung sounds to classify respiratory conditions. The model's training incorporates a **selective augmentation** strategy to effectively handle class imbalance in the medical audio dataset.
 
-**Source**: [Kaggle – Respiratory Sound Database](https://www.kaggle.com/datasets/vbookshelf/respiratory-sound-database/data)
+## 💻 Technology Stack
 
-**Characteristics**
+- **Frontend:** React, Vite, React Router, Axios, React Hot Toast
+- **Backend:** Python, FastAPI, Uvicorn, PostgreSQL
+- **AI & Machine Learning:** TensorFlow, Keras, Librosa, OpenAI API, KaggleHub
+- **Styling:** CSS Modules with a custom warm-brown theme.
 
-* 920 audio recordings from 126 patients
-* 6,898 respiratory cycles (~5.5 hours total)
-* Duration: 10–90 seconds per recording
-* Classes:
-* The **original dataset** contained **8 diagnostic categories**:
+## 🚀 Getting Started
 
-  * Bronchiectasis
-  * Bronchiolitis
-  * COPD
-  * Healthy
-  * Pneumonia
-  * URTI (Upper Respiratory Tract Infection)
-  * Asthma
-  * LRTI (Lower Respiratory Tract Infection)
+Follow these instructions to get a local copy of the project up and running for development and testing purposes.
 
-**Challenge**: Severe class imbalance (8.5:1 ratio)
+### Prerequisites
 
----
+- [Node.js](https://nodejs.org/) (v18 or newer)
+- [Python](https://www.python.org/) 3.9+ and Pip
+- [PostgreSQL](https://www.postgresql.org/) running instance
 
-## ⚙️ Methodology
-
-### 🔹 Pipeline
-
-`Raw Audio → Preprocessing → Selective Augmentation → Mel-Spectrograms → 2D CNN`
-
-### 1. Preprocessing
-
-* Load audio with **librosa** (22 kHz, 20-second clips)
-* Normalize and standardize duration
-
-### 2. Selective Augmentation (Minority Classes Only)
-
-| Technique       | Parameters               | Applied To       |
-| --------------- | ------------------------ | ---------------- |
-| Noise Addition  | 0.005, 0.01, 0.02        | Non-COPD classes |
-| Time Stretching | 0.8×, 0.9×, 1.1×, 1.2×   | Non-COPD classes |
-| Pitch Shifting  | -2, -1, +1, +2 semitones | Non-COPD classes |
-
-✅ Up to **12× augmentation per minority sample**
-✅ Balance improved from **8.5:1 → 2.1:1**
-
-### 3. Feature Extraction
-
-* **Mel-spectrograms**: 128 mel bins × 432 time frames
-* Converted to **dB scale** and normalized to [0,1]
-* Final input shape: `(128, 432, 1)`
-
-### 4. Model Architecture (2D CNN)
-
-```
-Conv2D(64) → BatchNorm → Conv2D(64) → MaxPool → Dropout(0.25)
-Conv2D(128) → BatchNorm → Conv2D(128) → MaxPool → Dropout(0.25)
-Conv2D(256) → BatchNorm → Conv2D(256) → MaxPool → Dropout(0.25)
-Conv2D(512) → BatchNorm → GlobalAvgPool
-Dense(512) → Dropout(0.5) → Dense(256) → Dropout(0.4)
-Dense(128) → Dropout(0.3) → Dense(#classes, softmax)
-```
-
----
-
-## 🚀 Quick Start
-
-### 🔹 Run in Google Colab (Recommended)
-
-1. Click the **“Open in Colab”** badge above
-2. Run all cells – dataset downloads automatically via `kagglehub`
-
-### 🔹 Local Setup
+### 1. Clone the Repository
 
 ```bash
-# Clone repository
-git clone https://github.com/your-username/respiratory-disease-classification.git
-cd respiratory-disease-classification
+git clone https://github.com/anjalichaturvedi/aira.git
+cd aira
+```
 
-# Install dependencies
+### 2. Backend Setup
+
+First, set up and run the FastAPI server.
+
+```bash
+# Navigate to the backend directory
+cd backend
+
+# Create and activate a virtual environment
+python3 -m venv venv
+source venv/bin/activate  # On Windows, use `.\venv\Scripts\activate`
+
+# Install Python dependencies
 pip install -r requirements.txt
 
-# Launch Jupyter Notebook
-jupyter notebook notebooks/Respiratory_Sound_Classification.ipynb
+# Create an environment file from the example
+cp .env.example .env
+
+# Edit the .env file with your credentials
+# (PostgreSQL details, OpenAI API key, etc.)
+nano .env
+
+# Ensure your PostgreSQL server is running and the database exists.
+# You will need to manually run the SQL scripts to create the required tables.
+
+# Run the backend server
+uvicorn main:app --reload
+```
+The backend API will be available at `http://localhost:8000`. You can view the interactive documentation at `http://localhost:8000/docs`.
+
+### 3. Frontend Setup
+
+In a new terminal, set up and run the React frontend.
+
+```bash
+# Navigate to the frontend directory from the root
+cd frontend
+
+# Install Node.js dependencies
+npm install
+
+# Create the environment file
+touch .env
+
+# Add the backend API URL to the .env file
+echo "VITE_API_BASE_URL=http://localhost:8000" > .env
+
+# Run the frontend development server
+npm run dev
+```
+The application will be available in your browser at `http://localhost:5173`.
+
+
+## ⚙️ Environment Variables
+
+To run this project, you will need to add the following environment variables to your .env file
+
+```
+OPENAI_API_KEY = ''
+
+POSTGRES_HOST= ''
+POSTGRES_PORT= ''
+POSTGRES_USER= ''
+POSTGRES_PASSWORD= ''
+POSTGRES_DB= ''
+
+VECTOR_DB_PATH= ''
+
+LOG_LEVEL= INFO
 ```
 
----
-
-## 🎯 Use Pre-Trained Model
-
-```python
-import tensorflow as tf
-
-model = tf.keras.models.load_model("models/trained_model.keras")
-```
-
----
 
 ## 📁 Project Structure
 
 ```
-Respiratory-Sound-Classification/
-├── notebooks/
-│   └── Respiratory_Sound_Classification.ipynb   # Main training notebook
-├── models/
-│   └── trained_model.keras                 # Pre-trained model (31.6 MB)
-├── data/
-│   └── README.md                           # Dataset download instructions
-├── requirements.txt                        # Dependencies
-├── README.md   
-├── LICENSE                            # Project documentation
+aira/
+├── backend/            # FastAPI server, API endpoints, and business logic
+│   ├── .env.example    # Environment variable template
+│   ├── main.py         # Main application entrypoint
+│   └── requirements.txt
+|   └── database.py     # Database manager
+|   └── schema.sql      # Database schema
+├── data/               # Information about the dataset used for the model
+├── frontend/           # React frontend application (Vite-based)
+│   ├── public/
+│   ├── src/
+│   │   ├── components/ # React components (Auth, Chatbot, Sidebar, etc.)
+│   │   ├── css/        # Component-specific CSS files
+│   │   └── App.jsx     # Main app component with routing
+│   ├── package.json
+│   └── vite.config.js
+└── README.md
 ```
 
----
+## 🧠 Model Details
 
-## 🌟 Key Features
+The core of the audio analysis is a deep learning model trained for automated respiratory disease classification.
 
-* ✅ Automatic dataset download via **kagglehub**
-* ✅ **Selective augmentation** for minority classes
-* ✅ 2D CNN architecture preserving **time-frequency relationships**
-* ✅ Balanced classification for medical audio datasets
-* ✅ End-to-end pipeline: from raw audio → disease prediction
+- **Dataset:** The model uses the [Respiratory Sound Database](https://www.kaggle.com/datasets/vbookshelf/respiratory-sound-database/data) from Kaggle, downloaded automatically via `kagglehub`.
+- **Methodology:** The pipeline involves converting raw audio into Mel-spectrograms, which serve as input to a 2D CNN. This approach preserves the crucial time-frequency relationships in the lung sounds.
+- **Selective Augmentation:** To combat the severe class imbalance (8.5:1 ratio) in the original dataset, a selective augmentation strategy was employed. Techniques like noise addition, time stretching, and pitch shifting were applied *only to the minority classes*, improving the class balance to 2.1:1 and resulting in a more robust and balanced classifier.
 
----
 
-## 📖 Citation
+## 📖 Dataset Citation
 
 ```bibtex
 @dataset{respiratory_sound_db_2019,

@@ -13,7 +13,7 @@ A.I.R.A. is an end-to-end application that serves as a personal AI health compan
 - **Respiratory Audio Analysis:** Upload an audio file (`.wav`, `.mp3`, `.flac`) and receive a potential respiratory disease classification powered by a 2D CNN model.
 - **Personalized Health Profiles:** Register, log in, and manage a detailed health profile, including comorbidities, medications, and allergies.
 - **Dynamic Profile Editing:** Easily update your health information and profile picture.
-- **Secure Authentication:** User accounts are protected with a username-based login system.
+- **Secure Authentication:** User accounts are protected with JWT token system and Google OAuth
 - **Full-Stack Architecture:** Built with a modern tech stack including a React frontend and a FastAPI backend.
 
 ## 🏛️ Architecture

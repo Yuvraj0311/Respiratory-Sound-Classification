@@ -13,7 +13,7 @@ const AuthPage = ({ onLoginSuccess }) => {
     full_name: "",
     password: "",
     confirmPassword: "",
-    username_or_email: "", 
+    username_or_email: "",
     login_password: "",
   });
   const [error, setError] = useState("");
@@ -26,44 +26,9 @@ const AuthPage = ({ onLoginSuccess }) => {
       ...formData,
       [e.target.name]: e.target.value,
     });
-    setError(""); 
-  };
-
-  const handleGoogleSuccess = async (credentialResponse) => {
-    setLoading(true);
     setError("");
-    
-    try {
-      const decoded = jwtDecode(credentialResponse.credential);
-      const googleUser = {
-        email: decoded.email,
-        name: decoded.name,
-        picture: decoded.picture,
-        google_id: decoded.sub,
-      };
-
-      const response = await fetch(getApiUrl("/google-login"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(googleUser),
-      });
-
-      const data = await response.json();
-
-      if (response.ok) {
-        localStorage.setItem("access_token", data.access_token);
-        onLoginSuccess(data.user_info);
-        navigate("/chat");
-      } else {
-        setError(data.detail || "Google login failed.");
-      }
-    } catch (err) {
-      console.error("Google Login Error:", err);
-      setError("Something went wrong during Google login.");
-    } finally {
-      setLoading(false);
-    }
   };
+
 
   const handleRegister = async (e) => {
     e.preventDefault();
@@ -136,43 +101,124 @@ const AuthPage = ({ onLoginSuccess }) => {
     }
   };
 
-  const handleLogin = async (e) => {
-    e.preventDefault();
-    setError("");
-    setLoading(true);
+// ✅ FIXED handleLogin
+const handleLogin = async (e) => {
+  e.preventDefault();
+  setError("");
+  setLoading(true);
 
-    if (!formData.username_or_email || !formData.login_password) {
-      setError("Username/Email and password are required.");
-      setLoading(false);
-      return;
+  if (!formData.username_or_email || !formData.login_password) {
+    setError("Username/Email and password are required.");
+    setLoading(false);
+    return;
+  }
+
+  try {
+    const formDataToSend = new FormData();
+    formDataToSend.append("username_or_email", formData.username_or_email);
+    formDataToSend.append("password", formData.login_password);
+
+    const response = await fetch(getApiUrl("/login"), {
+      method: "POST",
+      body: formDataToSend,
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      // ✅ FIX 1: Store token with correct key name
+      localStorage.setItem("token", data.access_token);
+
+      // ✅ FIX 2: Store complete user object with patient_id
+      const userToStore = {
+        patient_id: data.user_info.patient_id,  // ✅ Most important!
+        username: data.user_info.username,
+        email: data.user_info.email,
+        name: data.user_info.name,
+        avatar: data.user_info.avatar,
+        age_range: data.user_info.age_range,
+        gender: data.user_info.gender,
+      };
+
+      localStorage.setItem("user", JSON.stringify(userToStore));
+
+      // ✅ Debug log to verify
+      console.log("✅ Login successful! Stored user:", userToStore);
+
+      // Call the callback
+      onLoginSuccess(userToStore);
+
+      // Navigate to chat
+      navigate("/chat");
+    } else {
+      setError(data.detail || "Login failed. Please check your credentials.");
     }
+  } catch (err) {
+    console.error("Login Error:", err);
+    setError("Something went wrong. Please try again later.");
+  } finally {
+    setLoading(false);
+  }
+};
 
-    try {
-      const formDataToSend = new FormData();
-      formDataToSend.append("username_or_email", formData.username_or_email);
-      formDataToSend.append("password", formData.login_password);
+const handleGoogleSuccess = async (credentialResponse) => {
+  setLoading(true);
+  setError("");
 
-      const response = await fetch(getApiUrl("/login"), {
-        method: "POST",
-        body: formDataToSend,
-      });
+  try {
+    const decoded = jwtDecode(credentialResponse.credential);
 
-      const data = await response.json();
+    const googleUser = {
+      email: decoded.email,
+      name: decoded.name,
+      picture: decoded.picture,
+      google_id: decoded.sub,
+    };
 
-      if (response.ok) {
-        localStorage.setItem("access_token", data.access_token);
-        onLoginSuccess(data.user_info);
-        navigate("/chat");
-      } else {
-        setError(data.detail || "Login failed. Please check your credentials.");
-      }
-    } catch (err) {
-      console.error("Login Error:", err);
-      setError("Something went wrong. Please try again later.");
-    } finally {
-      setLoading(false);
+    const response = await fetch(getApiUrl("/google-login"), {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(googleUser),
+    });
+
+    const data = await response.json();
+
+    if (response.ok) {
+      localStorage.setItem("token", data.access_token);
+
+      const userToStore = {
+        patient_id: data.user_info.patient_id,
+        username: data.user_info.username,
+        email: data.user_info.email,
+        name: data.user_info.name,
+        avatar: data.user_info.avatar || decoded.picture,
+        age_range: data.user_info.age_range,
+        gender: data.user_info.gender,
+      };
+
+      localStorage.setItem("user", JSON.stringify(userToStore));
+
+      //  Debug log to verify
+      console.log("✅ Google login successful! Stored user:", userToStore);
+
+      // Call the callback
+      onLoginSuccess(userToStore);
+
+      // Navigate to chat
+      navigate("/chat");
+    } else {
+      setError(data.detail || "Google login failed.");
     }
-  };
+  } catch (err) {
+    console.error("Google Login Error:", err);
+    setError("Something went wrong during Google login.");
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   return (
     <div className="auth-container">
@@ -289,9 +335,9 @@ const AuthPage = ({ onLoginSuccess }) => {
         )}
 
         <div style={{ marginTop: "1.5rem", textAlign: "center" }}>
-          <div style={{ 
-            display: "flex", 
-            alignItems: "center", 
+          <div style={{
+            display: "flex",
+            alignItems: "center",
             margin: "1rem 0",
             gap: "10px"
           }}>
@@ -299,7 +345,7 @@ const AuthPage = ({ onLoginSuccess }) => {
             <span style={{ color: "#666", fontSize: "0.9rem" }}>OR</span>
             <div style={{ flex: 1, height: "1px", backgroundColor: "#ddd" }}></div>
           </div>
-          
+
           <GoogleLogin
             onSuccess={handleGoogleSuccess}
             onError={() => setError("Google Sign-In failed.")}

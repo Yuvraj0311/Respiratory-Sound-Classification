@@ -80,7 +80,7 @@ async def lifespan(app: FastAPI):
     logger.info("✓ Directories created")
 
     try:
-        chatbot = LungScopeChatbot(model_name="gpt-4")
+        chatbot = LungScopeChatbot(model_name="gpt-4.1-nano")
         logger.info("✓ LLM Chatbot initialized")
     except Exception as e:
         logger.error(f"✗ Failed to initialize chatbot: {e}")

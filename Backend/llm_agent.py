@@ -34,7 +34,7 @@ load_dotenv()
 class LungScopeChatbot:
     """Adaptive RAG-based AI Doctor for respiratory health"""
 
-    def __init__(self, temperature: float = 0.5, model_name: str = "gpt-4o-mini"):
+    def __init__(self, temperature: float = 0.5, model_name: str = "gpt-4.1-nano"):
         self.openai_api_key = os.getenv('OPENAI_API_KEY')
         if not self.openai_api_key:
             raise ValueError("OPENAI_API_KEY not found in environment variables")

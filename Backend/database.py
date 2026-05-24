@@ -4,6 +4,7 @@ Handles PostgreSQL patient data and ChromaDB vector retrieval
 """
 
 import os
+import json
 import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
@@ -167,8 +168,14 @@ class DatabaseManager:
             logger.error(f"Error retrieving patient history: {e}")
             return []
     
-    def log_query(self, patient_id: str, query_text: str, response: str, 
-                  audio_result: Optional[Dict] = None):
+    def log_query(
+        self,
+        patient_id: str,
+        query_text: str,
+        response: str,
+        audio_result: Optional[Dict] = None,
+        xray_result: Optional[Dict] = None
+    ):
         """Log all queries and responses for HIPAA audit trail"""
         try:
             if not self.conn:
@@ -182,13 +189,19 @@ class DatabaseManager:
                  audio_analysis_result, created_at)
             VALUES (%s, %s, %s, %s, %s, %s)
             """
+
+            tool_results = {}
+            if audio_result:
+                tool_results["audio"] = audio_result
+            if xray_result:
+                tool_results["xray"] = xray_result
             
             cursor.execute(query, (
                 patient_id,
                 datetime.now(),
                 query_text,
                 response,
-                str(audio_result) if audio_result else None,
+                json.dumps(tool_results) if tool_results else None,
                 datetime.now()
             ))
             
@@ -235,7 +248,7 @@ class DatabaseManager:
             
             cursor = self.conn.cursor()
             
-            # ✅ Hash password if provided (for local auth)
+            # Hash password if provided (for local auth)
             password_hash = None
             if patient_data.get('password'):
                 password_hash = self.hash_password(patient_data['password'])
@@ -256,7 +269,7 @@ class DatabaseManager:
                 patient_data.get('email'),
                 patient_data.get('username'),
                 patient_data.get('full_name'),
-                password_hash,  # ✅ Use hashed password
+                password_hash,  # Use hashed password
                 patient_data.get('age_range'),
                 patient_data.get('gender'),
                 patient_data.get('smoking_status'),
@@ -474,7 +487,8 @@ class DataRetrievalAgent:
         patient_id: str,
         disease_classification: str,
         user_query: Optional[str] = None,
-        audio_result: Optional[Dict] = None
+        audio_result: Optional[Dict] = None,
+        xray_result: Optional[Dict] = None
     ) -> Dict[str, Any]:
         """Retrieve comprehensive context for LLM agent"""
         try:
@@ -507,6 +521,7 @@ class DataRetrievalAgent:
                 "patient_history": patient_history,
                 "disease_classification": disease_classification,
                 "audio_analysis": audio_result,
+                "xray_analysis": xray_result,
                 "disease_knowledge": disease_context,
                 "comorbidity_knowledge": comorbidity_context,
                 "retrieved_at": datetime.now().isoformat()
@@ -519,10 +534,16 @@ class DataRetrievalAgent:
             logger.error(f"Error retrieving full context: {e}")
             return {}
     
-    def log_interaction(self, patient_id: str, query: str, response: str, 
-                       audio_result: Optional[Dict] = None):
+    def log_interaction(
+        self,
+        patient_id: str,
+        query: str,
+        response: str,
+        audio_result: Optional[Dict] = None,
+        xray_result: Optional[Dict] = None
+    ):
         """Log interaction to audit trail"""
-        self.db_manager.log_query(patient_id, query, response, audio_result)
+        self.db_manager.log_query(patient_id, query, response, audio_result, xray_result)
     
     def cleanup(self):
         """Clean up database connections"""

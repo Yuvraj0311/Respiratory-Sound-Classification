@@ -95,6 +95,16 @@
   background: var(--clr-surface-tonal-a20, #4b4541);
 }
 
+.message-bubble.info {
+  background: rgba(94, 151, 246, 0.12);
+  border-color: rgba(94, 151, 246, 0.35);
+  color: #dbe8ff;
+}
+
+.message-bubble.thinking {
+  color: var(--clr-surface-a60, #a3a3a3);
+}
+
 .chatbot-input-area {
   padding: 1rem 1.5rem;
   border-top: 1px solid var(--clr-surface-a20, #3f3f3f);
@@ -166,6 +176,30 @@
   align-items: center;
 }
 
+.file-preview span {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-preview button {
+  background: none;
+  border: none;
+  color: var(--clr-surface-a50, #8b8b8b);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-preview button:hover {
+  color: var(--clr-primary-a30, #c9956d);
+}
+
 .attach-button {
   background: none;
   color: var(--clr-surface-a50, #8b8b8b);
@@ -176,4 +210,12 @@
 }
 .attach-button:hover {
   color: var(--clr-primary-a30, #c9956d);
+}
+
+.attach-button:disabled,
+.send-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  transform: none;
+  box-shadow: none;
 }

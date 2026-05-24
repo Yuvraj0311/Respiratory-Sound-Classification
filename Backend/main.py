@@ -25,10 +25,33 @@ import sys
 import io
 sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def resolve_backend_path(relative_path: str) -> str:
+    """Resolve paths from either the backend directory or the repo root."""
+    if os.path.exists(relative_path):
+        return relative_path
+    return os.path.join(BASE_DIR, relative_path)
+
+
+def safe_upload_filename(filename: Optional[str]) -> str:
+    """Keep uploaded filenames local and filesystem-friendly."""
+    base_name = os.path.basename(filename or "upload")
+    safe_name = "".join(
+        char if char.isalnum() or char in {".", "_", "-"} else "_"
+        for char in base_name
+    )
+    return safe_name or "upload"
+
+
+AUDIO_EXTENSIONS = {'.wav', '.mp3', '.flac'}
+XRAY_IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.bmp', '.tif', '.tiff', '.webp'}
+
 # ---------------- JWT CONFIG ---------------- #
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "CHANGE_THIS_IN_PRODUCTION_12345")
 if SECRET_KEY == "CHANGE_THIS_IN_PRODUCTION_12345":
-    logging.warning("⚠️ Using default JWT secret key! Set JWT_SECRET_KEY environment variable in production!")
+    logging.warning("WARNING: Using default JWT secret key! Set JWT_SECRET_KEY environment variable in production!")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 1440  # 24 hours
 
@@ -65,30 +88,32 @@ logger = logging.getLogger(__name__)
 # ---------------- GLOBAL VARIABLES ---------------- #
 chatbot = None
 audio_classifier = None
+xray_classifier = None
 
 # ---------------- LIFESPAN HANDLER ---------------- #
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Initialize all agents and resources on startup; clean up on shutdown."""
-    global chatbot, audio_classifier
+    global chatbot, audio_classifier, xray_classifier
 
-    logger.info("🚀 A.I.R.A Backend starting up...")
+    logger.info("A.I.R.A Backend starting up...")
     os.makedirs("uploads/audio", exist_ok=True)
+    os.makedirs("uploads/xray", exist_ok=True)
     os.makedirs("uploads/avatars", exist_ok=True)
     os.makedirs("models", exist_ok=True)
     os.makedirs("logs", exist_ok=True)
-    logger.info("✓ Directories created")
+    logger.info("Directories created")
 
     try:
         chatbot = LungScopeChatbot(model_name="gpt-4.1-nano")
-        logger.info("✓ LLM Chatbot initialized")
+        logger.info("LLM Chatbot initialized")
     except Exception as e:
-        logger.error(f"✗ Failed to initialize chatbot: {e}")
+        logger.error(f"Failed to initialize chatbot: {e}")
         chatbot = None
 
     try:
         audio_classifier = RespiratoryAudioClassifier(
-            model_path="models/trained_model.keras",
+            model_path=resolve_backend_path("models/trained_model.keras"),
             sample_rate=22050,
             duration=20.0,
             n_mels=128,
@@ -96,20 +121,31 @@ async def lifespan(app: FastAPI):
             hop_length=512,
             target_length=432
         )
-        logger.info("✓ Audio Classifier initialized")
+        logger.info("Audio Classifier initialized")
     except Exception as e:
-        logger.error(f"✗ Failed to initialize audio classifier: {e}")
+        logger.error(f"Failed to initialize audio classifier: {e}")
         audio_classifier = None
+
+    try:
+        from xray_classifier import LungXRayClassifier
+
+        xray_classifier = LungXRayClassifier(
+            model_path=resolve_backend_path("models/resnet18_finetuned.pth")
+        )
+        logger.info("X-ray Classifier initialized")
+    except Exception as e:
+        logger.error(f"Failed to initialize X-ray classifier: {e}")
+        xray_classifier = None
 
     yield
 
-    logger.info("🧹 A.I.R.A Backend shutting down...")
+    logger.info("A.I.R.A Backend shutting down...")
     if chatbot:
         try:
             chatbot.cleanup()
         except:
             pass
-    logger.info("✓ Cleanup complete")
+    logger.info("Cleanup complete")
 
 
 # ---------------- FASTAPI APP ---------------- #
@@ -167,20 +203,35 @@ class Token(BaseModel):
 
 class ChatRequest(BaseModel):
     patient_id: str = Field(..., example="PATIENT_12345")
+    conversation_id: Optional[str] = Field(None, example="3f766aa8-4a7f-44cc-a056-58b667b621c7")
     query: str = Field(..., example="What should I do about my breathing difficulty?")
+    recent_messages: Optional[List[str]] = Field(None, example=[
+        "I feel short of breath today.",
+        "It gets worse when I walk and I hear wheezing."
+    ])
     audio_result: Optional[Dict[str, Any]] = Field(None, example={
         "disease": "COPD",
         "confidence": 0.9759,
         "severity": "moderate"
+    })
+    xray_result: Optional[Dict[str, Any]] = Field(None, example={
+        "finding": "Viral Pneumonia",
+        "confidence": 0.91,
+        "severity": "high"
     })
 
 class ChatResponse(BaseModel):
     response: str
     confidence: Optional[float] = None
     disease_classification: Optional[str] = None
+    xray_classification: Optional[str] = None
     follow_up: Optional[str] = None
     turn_count: Optional[int] = None  
     should_request_audio: Optional[bool] = None  
+    should_request_xray: Optional[bool] = None
+    recommended_tool: Optional[str] = None
+    tool_selection_reason: Optional[str] = None
+    diagnostic_tool_decision: Optional[Dict[str, Any]] = None
     timestamp: str = Field(default_factory=lambda: datetime.now().isoformat())
 
 class AudioAnalysisResponse(BaseModel):
@@ -188,6 +239,17 @@ class AudioAnalysisResponse(BaseModel):
     confidence: float
     severity: str
     timestamp: str
+
+class XRayAnalysisResponse(BaseModel):
+    finding: str
+    confidence: float
+    severity: str
+    timestamp: str
+    modality: Optional[str] = None
+    knowledge_disease: Optional[str] = None
+    clinical_note: Optional[str] = None
+    probabilities: Optional[Dict[str, float]] = None
+    top_predictions: Optional[List[Dict[str, Any]]] = None
 
 class PatientDataResponse(BaseModel):
     patient_id: str
@@ -224,7 +286,9 @@ async def root():
             "google_login": "/google-login",
             "chat": "/api/chat",
             "audio_analysis": "/api/analyze-audio",
+            "xray_analysis": "/api/analyze-xray",
             "full_analysis": "/api/full-analysis",
+            "full_xray_analysis": "/api/full-xray-analysis",
             "patient_data": "/api/patient/{patient_id}"
         }
     }
@@ -233,7 +297,7 @@ async def root():
 @app.get("/health", tags=["General"])
 async def health_check():
     """Health check endpoint"""
-    global chatbot, audio_classifier
+    global chatbot, audio_classifier, xray_classifier
     
     return { 
         "status": "healthy", 
@@ -241,6 +305,7 @@ async def health_check():
         "services": {
             "chatbot": "available" if chatbot else "unavailable",
             "audio_classifier": "available" if audio_classifier else "unavailable",
+            "xray_classifier": "available" if xray_classifier else "unavailable",
             "database": "configured" if os.getenv("POSTGRES_DB") else "not configured"
         }
     }
@@ -493,7 +558,10 @@ async def chat_with_ai(request: ChatRequest):
         response = chatbot.query(
             user_query=request.query,
             patient_id=request.patient_id,
-            audio_result=request.audio_result
+            conversation_id=request.conversation_id,
+            recent_messages=request.recent_messages,
+            audio_result=request.audio_result,
+            xray_result=request.xray_result
         )
         
         return ChatResponse(**response)
@@ -520,17 +588,16 @@ async def analyze_respiratory_audio(
             detail="Audio classifier not available. Please check if the model file exists."
         )
     
-    allowed_extensions = ['.wav', '.mp3', '.flac']
-    file_ext = os.path.splitext(file.filename)[1].lower()
+    file_ext = os.path.splitext(file.filename or "")[1].lower()
     
-    if file_ext not in allowed_extensions:
+    if file_ext not in AUDIO_EXTENSIONS:
         raise HTTPException(
             status_code=400, 
-            detail=f"Invalid audio file format. Allowed formats: {', '.join(allowed_extensions)}"
+            detail=f"Invalid audio file format. Allowed formats: {', '.join(sorted(AUDIO_EXTENSIONS))}"
         )
 
     file_id = str(uuid.uuid4())
-    file_path = os.path.join("uploads/audio", f"{file_id}_{file.filename}")
+    file_path = os.path.join("uploads/audio", f"{file_id}_{safe_upload_filename(file.filename)}")
     
     try:
         with open(file_path, "wb") as buffer:
@@ -561,6 +628,64 @@ async def analyze_respiratory_audio(
             except:
                 pass
 
+# ---------------- X-RAY ANALYSIS ---------------- #
+@app.post("/api/analyze-xray", response_model=XRayAnalysisResponse, tags=["X-ray Analysis"])
+async def analyze_chest_xray(
+    patient_id: str = Form(...),
+    user_query: str = Form(""),
+    file: UploadFile = File(...)
+):
+    """Analyzes a chest X-ray image for screening classification."""
+    global xray_classifier
+
+    if not xray_classifier:
+        raise HTTPException(
+            status_code=503,
+            detail="X-ray classifier not available. Please check if the model file exists and PyTorch is installed."
+        )
+
+    file_ext = os.path.splitext(file.filename or "")[1].lower()
+    if file_ext not in XRAY_IMAGE_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid X-ray image format. Allowed formats: {', '.join(sorted(XRAY_IMAGE_EXTENSIONS))}"
+        )
+
+    file_id = str(uuid.uuid4())
+    file_path = os.path.join("uploads/xray", f"{file_id}_{safe_upload_filename(file.filename)}")
+
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        logger.info(f"Analyzing X-ray image for patient: {patient_id[:8]}...")
+        result = xray_classifier.predict(file_path)
+        logger.info(f"X-ray prediction: {result['finding']} ({result['confidence']:.4f})")
+
+        return XRayAnalysisResponse(
+            finding=result["finding"],
+            confidence=result["confidence"],
+            severity=result["severity"],
+            timestamp=datetime.now().isoformat(),
+            modality=result.get("modality"),
+            knowledge_disease=result.get("knowledge_disease"),
+            clinical_note=result.get("clinical_note"),
+            probabilities=result.get("probabilities"),
+            top_predictions=result.get("top_predictions")
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error in X-ray analysis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+            except:
+                pass
+
 # ---------------- COMBINED WORKFLOW ---------------- #
 @app.post("/api/full-analysis", tags=["Complete Analysis"])
 async def complete_respiratory_analysis(
@@ -576,11 +701,12 @@ async def complete_respiratory_analysis(
         
         logger.info(f"Full analysis request from patient: {patient_id[:8]}***")
         
-        if not file.filename.endswith(('.wav', '.mp3', '.flac')):
+        file_ext = os.path.splitext(file.filename or "")[1].lower()
+        if file_ext not in AUDIO_EXTENSIONS:
             raise HTTPException(status_code=400, detail="Invalid audio format. Supported: .wav, .mp3, .flac")
         
         file_id = str(uuid.uuid4())
-        file_path = os.path.join("uploads/audio", f"{file_id}_{file.filename}")
+        file_path = os.path.join("uploads/audio", f"{file_id}_{safe_upload_filename(file.filename)}")
         
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
@@ -625,6 +751,78 @@ async def complete_respiratory_analysis(
                 logger.info(f"Cleaned up audio file: {file_path}")
             except Exception as e:
                 logger.warning(f"Failed to delete audio file: {e}")
+
+@app.post("/api/full-xray-analysis", tags=["Complete Analysis"])
+async def complete_xray_analysis(
+    file: UploadFile = File(..., description="Chest X-ray image file"),
+    patient_id: str = Form(..., description="Patient identifier"),
+    query: str = Form(..., description="Patient's medical question")
+):
+    """Complete X-ray analysis workflow with RAG response."""
+    file_path = None
+    try:
+        if not xray_classifier or not chatbot:
+            raise HTTPException(status_code=503, detail="Services not fully initialized")
+
+        logger.info(f"Full X-ray analysis request from patient: {patient_id[:8]}***")
+
+        file_ext = os.path.splitext(file.filename or "")[1].lower()
+        if file_ext not in XRAY_IMAGE_EXTENSIONS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid X-ray image format. Supported: {', '.join(sorted(XRAY_IMAGE_EXTENSIONS))}"
+            )
+
+        file_id = str(uuid.uuid4())
+        file_path = os.path.join("uploads/xray", f"{file_id}_{safe_upload_filename(file.filename)}")
+
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        logger.info("Classifying X-ray image...")
+        xray_result = xray_classifier.predict(file_path)
+        logger.info(
+            f"X-ray classified as: {xray_result['finding']} "
+            f"(confidence: {xray_result['confidence']:.2f})"
+        )
+
+        logger.info("Generating AI response with RAG pipeline...")
+        chat_response = chatbot.query(
+            user_query=query,
+            patient_id=patient_id,
+            xray_result=xray_result
+        )
+        logger.info("Chat response generated successfully")
+
+        return {
+            "xray_analysis": {
+                "finding": xray_result["finding"],
+                "confidence": xray_result["confidence"],
+                "severity": xray_result.get("severity", "N/A"),
+                "knowledge_disease": xray_result.get("knowledge_disease"),
+                "probabilities": xray_result.get("probabilities", {})
+            },
+            "ai_response": chat_response,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Full X-ray analysis error: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=500,
+            detail=f"X-ray analysis failed: {str(e)}"
+        )
+    finally:
+        if file_path and os.path.exists(file_path):
+            try:
+                os.remove(file_path)
+                logger.info(f"Cleaned up X-ray file: {file_path}")
+            except Exception as e:
+                logger.warning(f"Failed to delete X-ray file: {e}")
 
 # ---------------- PATIENT DATA MANAGEMENT ---------------- #
 @app.get("/api/patient/{patient_id}", response_model=PatientDataResponse, tags=["Patient Data"])
@@ -716,6 +914,26 @@ async def get_model_info():
         raise HTTPException(
             status_code=500, 
             detail=f"Failed to get model info: {str(e)}"
+        )
+
+@app.get("/api/model/xray-info", tags=["Model Information"])
+async def get_xray_model_info():
+    """Gets information about the loaded X-ray classification model."""
+    global xray_classifier
+
+    if not xray_classifier:
+        raise HTTPException(
+            status_code=503,
+            detail="X-ray model not loaded"
+        )
+
+    try:
+        return JSONResponse(content=xray_classifier.get_model_info())
+    except Exception as e:
+        logger.error(f"Get X-ray model info error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get X-ray model info: {str(e)}"
         )
 
 # ---------------- UPDATE PATIENT PROFILE ---------------- #
@@ -815,6 +1033,7 @@ if os.path.exists("uploads"):
     app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 else:
     os.makedirs("uploads/audio", exist_ok=True)
+    os.makedirs("uploads/xray", exist_ok=True)
     os.makedirs("uploads/avatars", exist_ok=True)
     app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
     

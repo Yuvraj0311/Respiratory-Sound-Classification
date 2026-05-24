@@ -31,6 +31,7 @@ backend/*.egg-info
 # Backend logs & uploads
 backend/logs/
 backend/uploads/
+logs/
 
 # Vector database
 backend/vector_db/
